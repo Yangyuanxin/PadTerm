@@ -13,7 +13,9 @@ import UIKit
 
 // MARK: - 渲染视图
 
-final class TerminalRenderView: UIView, UIContextMenuInteractionDelegate, UIGestureRecognizerDelegate {
+/// 必须显式声明 UIKeyInput：只实现 insertText/deleteBackward/hasText 而不声明协议的话，
+/// UIKit 不会把它当作文本输入对象 —— becomeFirstResponder 会返回 true，但系统软键盘永远不弹出。
+final class TerminalRenderView: UIView, UIKeyInput, UIContextMenuInteractionDelegate, UIGestureRecognizerDelegate {
     let emulator: TerminalEmulator
     let theme: TerminalTheme = .dark
 
@@ -364,9 +366,11 @@ final class TerminalRenderView: UIView, UIContextMenuInteractionDelegate, UIGest
         return accessory
     }()
 
-    // 系统键盘不弹出时这行会孤零零悬在屏幕底部（iPadOS 判定有外接键盘的坑），
-    // 改为不挂 accessory：需要按键时用内置触屏键盘 TouchKeyboard。
-    override var inputAccessoryView: UIView? { nil }
+    /// 是否把 Esc/Tab/Ctrl/方向键辅助条挂在系统键盘上方。
+    /// iPhone 始终启用；iPad 接了硬件键盘、系统键盘不弹时不能挂，否则会孤零零悬在屏幕底部。
+    var accessoryEnabled = false
+
+    override var inputAccessoryView: UIView? { accessoryEnabled ? keyboardAccessory : nil }
 
     // MARK: 输入辅助
 
@@ -779,6 +783,8 @@ final class TerminalRenderView: UIView, UIContextMenuInteractionDelegate, UIGest
 
 struct TerminalCanvas: UIViewRepresentable {
     @ObservedObject var model: TerminalViewModel
+    /// iPhone 上把辅助键条挂到系统软键盘上方（iPad/Mac 关闭，避免硬件键盘时悬空）
+    var usesKeyboardAccessory = false
 
     func makeUIView(context: Context) -> UIScrollView {
         MainActor.assumeIsolated {
@@ -792,6 +798,7 @@ struct TerminalCanvas: UIViewRepresentable {
 
             let render = TerminalRenderView(emulator: model.emulator,
                                            fontSize: CGFloat(model.fontSize))
+            render.accessoryEnabled = usesKeyboardAccessory
             render.scrollView = scrollView
             render.onResize = { cols, rows in model.resize(cols: cols, rows: rows) }
             render.onFontSizeChange = { size in model.fontSize = Double(size) }
@@ -816,6 +823,10 @@ struct TerminalCanvas: UIViewRepresentable {
     func updateUIView(_ uiView: UIScrollView, context: Context) {
         MainActor.assumeIsolated {
             guard let render = model.renderView else { return }
+            if render.accessoryEnabled != usesKeyboardAccessory {
+                render.accessoryEnabled = usesKeyboardAccessory
+                if render.isFirstResponder { render.reloadInputViews() }
+            }
             let size = CGFloat(model.fontSize)
             if abs(render.fontSize - size) > 0.01 {
                 render.fontSize = size

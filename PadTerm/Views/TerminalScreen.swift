@@ -26,7 +26,7 @@ struct TerminalScreen: View {
         VStack(spacing: 0) {
             statusBanner
             ZStack(alignment: .topTrailing) {
-                TerminalCanvas(model: viewModel)
+                TerminalCanvas(model: viewModel, usesKeyboardAccessory: isPhone)
                     .background(Color(uiColor: TerminalTheme.dark.background))
                     .contentShape(Rectangle())
                     .onTapGesture { viewModel.toggleKeyboard() }
