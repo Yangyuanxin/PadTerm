@@ -1,0 +1,24 @@
+# Xcode / 构建产物
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+*.moved-aside
+*.persistv3
+build_mac.sh.log
+
+# SwiftPM 依赖（由 Xcode 自动解析）
+PadTerm.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+
+# 私钥 / 证书 / 描述文件
+*.p12
+*.mobileprovision
+*.provisionprofile
+
+# 本地临时探测工程
+.probe/
+
+# 本地配置与日志
+hosts.json
+*.log
+.DS_Store
