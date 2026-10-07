@@ -5,6 +5,23 @@ struct TerminalScreen: View {
     @ObservedObject var viewModel: TerminalViewModel
     @State private var showTouchKeyboard = false
 
+    /// 设备形态：iPhone 用系统软键盘（全键盘 / 九宫格由用户在系统键盘上切换）；
+    /// iPad 特殊处理（系统键盘可能被判定为「有外接键盘」而不弹出，需要内置键盘兜底）；
+    /// Mac Catalyst 有硬件键盘，不需要任何软键盘入口。
+    private var isPhone: Bool { UIDevice.current.userInterfaceIdiom == .phone }
+    private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+    private var isMac: Bool {
+        #if targetEnvironment(macCatalyst)
+        return true
+        #else
+        return false
+        #endif
+    }
+    /// 只有 iPad 需要内置触屏键盘兜底
+    private var needsTouchKeyboardFallback: Bool { isPad && !isMac }
+    /// Mac 上不需要「键盘」浮动按钮
+    private var needsKeyboardButton: Bool { !isMac }
+
     var body: some View {
         VStack(spacing: 0) {
             statusBanner
@@ -17,11 +34,11 @@ struct TerminalScreen: View {
                     .padding(12)
             }
             .overlay(alignment: .bottomTrailing) {
-                // iPad 无外接键盘时，用于调出软键盘的常驻入口
-                if !viewModel.systemKeyboardShown && !showTouchKeyboard {
+                // iPhone 调起系统软键盘；iPad 若系统键盘不弹（判定有外接键盘）再切内置键盘
+                if needsKeyboardButton && !viewModel.systemKeyboardShown && !showTouchKeyboard {
                     Button {
                         viewModel.requestKeyboard()
-                        // 系统键盘没弹出来（iPadOS 判定有外接键盘）就改用内置键盘
+                        guard needsTouchKeyboardFallback else { return }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                             if !viewModel.systemKeyboardShown { withAnimation { showTouchKeyboard = true } }
                         }
@@ -36,8 +53,8 @@ struct TerminalScreen: View {
                 }
             }
             .overlay(alignment: .bottom) {
-                // 系统键盘高度为 0（iPadOS 认为有外接键盘）时的兜底输入
-                if showTouchKeyboard {
+                // 系统键盘高度为 0（iPadOS 认为有外接键盘）时的兜底输入，仅 iPad
+                if needsTouchKeyboardFallback && showTouchKeyboard {
                     TouchKeyboard(
                         onBytes: { viewModel.sendBytes($0) },
                         onText: { viewModel.sendBytes([UInt8]($0.utf8)) },
@@ -54,20 +71,22 @@ struct TerminalScreen: View {
                 }
             }
         }
-        // 键盘弹出时不允许压缩终端布局：布局变化 → 行列变化 → 向远端发 resize → 画面跳动
-        .ignoresSafeArea(.keyboard, edges: .bottom)
+        // iPad：键盘弹出时不压缩终端（布局变化 → 行列变化 → 向远端 resize → 画面跳动）
+        // iPhone：屏幕小，必须让出键盘空间，否则大半屏被键盘盖住看不到输出
+        .ignoreKeyboardOnSmallScreen(isPhone)
         .navigationTitle(terminalNavigationTitle)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             if !viewModel.isSessionActive { viewModel.connect() }
             // 进页面即让终端拿到键盘焦点（此前焦点闭包未接线，按键全部丢失）
+            // iPhone / iPad 会因此弹出系统软键盘；Mac 上无副作用
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { viewModel.requestKeyboard() }
-            // 系统键盘若始终不出现（iPadOS 判定有外接键盘时键盘高度为 0），自动切换到内置触屏键盘
-            #if !targetEnvironment(macCatalyst)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-                if !viewModel.systemKeyboardShown { withAnimation { showTouchKeyboard = true } }
+            // iPad 专用：系统键盘若始终不出现（判定有外接键盘时键盘高度为 0），切换到内置触屏键盘
+            if needsTouchKeyboardFallback {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                    if !viewModel.systemKeyboardShown { withAnimation { showTouchKeyboard = true } }
+                }
             }
-            #endif
         }
         .onChange(of: viewModel.systemKeyboardShown) { shown in
             // 系统键盘真的出来了就收起内置键盘，避免两层叠着
@@ -160,6 +179,13 @@ struct TerminalScreen: View {
 
     // 终端视图本身即输入目标（UIKeyInput），无需底部输入框：
     // 直接敲即是 shell 行编辑，↑↓ Tab Ctrl 全部由远端的 readline/bash 处理。
+}
+
+private extension View {
+    /// iPhone 小屏必须让出系统键盘的空间；iPad 保持不压缩（避免终端行列变化导致画面跳动）
+    @ViewBuilder func ignoreKeyboardOnSmallScreen(_ isSmallScreen: Bool) -> some View {
+        if isSmallScreen { self } else { self.ignoresSafeArea(.keyboard, edges: .bottom) }
+    }
 }
 
 /// 收发原始字节诊断浮层（排查输入/回显问题时打开）

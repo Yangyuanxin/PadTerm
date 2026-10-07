@@ -106,43 +106,24 @@ struct AIChatView: View {
 
     // MARK: - 顶部模式条
 
-    /// 顶部条：压成**单行**，把纵向空间让给对话内容
+    /// 顶部条：宽屏（iPad）单行放下全部信息；窄屏（iPhone）自动退化为去掉状态文字的紧凑行
     private var modeBar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                // 分段控件只放文字：图标+中文在 iPad 上会被挤成两行，很难看
-                Picker("模式", selection: $mode) {
-                    ForEach(AISessionMode.allCases) { item in
-                        Text(item.rawValue).tag(item)
-                    }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    modePicker.frame(width: 185).fixedSize()
+                    statusText.font(.caption).lineLimit(1)
+                    saveStatusText
+                    Spacer(minLength: 8)
+                    sessionButtons
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 185)
-                .fixedSize()
-
-                statusText
-                    .font(.caption)
-                    .lineLimit(1)
-
-                saveStatusText
-
-                Spacer(minLength: 8)
-
-                // 这两个按钮直接画在页面里，不放 .toolbar：
-                // 本视图嵌在 NavigationSplitView → TabView 中，导航栏工具栏会被外层吞掉，按钮根本不渲染。
-                Button { askNewSession() } label: {
-                    Image(systemName: "square.and.pencil")
+                HStack(spacing: 8) {
+                    modePicker
+                        .frame(maxWidth: 185)
+                    saveStatusText
+                    Spacer(minLength: 6)
+                    sessionButtons
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Button { saveCurrentSession(); showHistory = true } label: {
-                    Image(systemName: "clock.arrow.circlepath")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                moreMenu
             }
             .frame(minHeight: 34)
 
@@ -157,6 +138,37 @@ struct AIChatView: View {
         .padding(.vertical, 6)
         .background(Color(uiColor: .secondarySystemBackground))
         .animation(.easeInOut(duration: 0.15), value: mode)
+    }
+
+    /// 分段控件只放文字：图标+中文在窄屏会被挤成两行，很难看
+    private var modePicker: some View {
+        Picker("模式", selection: $mode) {
+            ForEach(AISessionMode.allCases) { item in
+                Text(item.rawValue).tag(item)
+            }
+        }
+        .pickerStyle(.segmented)
+        .fixedSize()
+    }
+
+    /// 这两个按钮直接画在页面里，不放 .toolbar：
+    /// 本视图嵌在 NavigationSplitView → TabView 中，导航栏工具栏会被外层吞掉，按钮根本不渲染。
+    private var sessionButtons: some View {
+        HStack(spacing: 8) {
+            Button { askNewSession() } label: {
+                Image(systemName: "square.and.pencil")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            Button { saveCurrentSession(); showHistory = true } label: {
+                Image(systemName: "clock.arrow.circlepath")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            moreMenu
+        }
     }
 
     /// 自动保存状态：单行显示，不再是独立的一整行

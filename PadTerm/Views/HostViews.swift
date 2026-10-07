@@ -197,7 +197,16 @@ struct HostEditorView: View {
                 }
             }
         }
-        .frame(minWidth: 520, minHeight: 620)
+        // iPhone 上按屏幕自适应；只有 iPad / Mac 才需要放大弹窗，否则会把页面撑出屏幕
+        .frame(minWidth: useLargeSheet ? 520 : 0, minHeight: useLargeSheet ? 620 : 0)
+    }
+
+    private var useLargeSheet: Bool {
+        #if targetEnvironment(macCatalyst)
+        return true
+        #else
+        return UIDevice.current.userInterfaceIdiom == .pad
+        #endif
     }
 
     private func testConnection() async {

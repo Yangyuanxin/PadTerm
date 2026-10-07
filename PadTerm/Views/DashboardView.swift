@@ -243,23 +243,28 @@ struct DashboardView: View {
         CardBox(title: "存储分区", systemImage: "internaldrive") {
             VStack(alignment: .leading, spacing: 8) {
                 // 与 df -h 一致的列：文件系统 类型 容量 已用 可用 已用% 挂载点
-                dfRow(filesystem: "文件系统", fstype: "类型", size: "容量",
-                      used: "已用", avail: "可用", percent: "已用%", mount: "挂载点")
-                    .font(.caption2.bold())
-                    .foregroundStyle(.secondary)
-                Divider()
-                ForEach(snapshot.disks) { disk in
-                    VStack(alignment: .leading, spacing: 4) {
-                        dfRow(filesystem: disk.filesystem,
-                              fstype: disk.fstype.isEmpty ? "-" : disk.fstype,
-                              size: Self.dfHuman(disk.totalMB),
-                              used: Self.dfHuman(disk.usedMB),
-                              avail: Self.dfHuman(disk.availMB),
-                              percent: String(format: "%.0f%%", disk.usedPercent),
-                              mount: disk.mountPoint,
-                              percentColor: disk.usedPercent > 90 ? .red : (disk.usedPercent > 70 ? .orange : .primary))
-                        ProgressView(value: disk.usedPercent / 100)
-                            .tint(disk.usedPercent > 90 ? .red : (disk.usedPercent > 70 ? .orange : .blue))
+                // iPhone 窄屏放不下整行 → 横向滚动，iPad 上宽度足够则原样展示
+                ScrollView(.horizontal, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        dfRow(filesystem: "文件系统", fstype: "类型", size: "容量",
+                              used: "已用", avail: "可用", percent: "已用%", mount: "挂载点")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.secondary)
+                        Divider()
+                        ForEach(snapshot.disks) { disk in
+                            VStack(alignment: .leading, spacing: 4) {
+                                dfRow(filesystem: disk.filesystem,
+                                      fstype: disk.fstype.isEmpty ? "-" : disk.fstype,
+                                      size: Self.dfHuman(disk.totalMB),
+                                      used: Self.dfHuman(disk.usedMB),
+                                      avail: Self.dfHuman(disk.availMB),
+                                      percent: String(format: "%.0f%%", disk.usedPercent),
+                                      mount: disk.mountPoint,
+                                      percentColor: disk.usedPercent > 90 ? .red : (disk.usedPercent > 70 ? .orange : .primary))
+                                ProgressView(value: disk.usedPercent / 100)
+                                    .tint(disk.usedPercent > 90 ? .red : (disk.usedPercent > 70 ? .orange : .blue))
+                            }
+                        }
                     }
                 }
                 if snapshot.disks.isEmpty { Text("未取到分区信息").font(.caption).foregroundStyle(.secondary) }
