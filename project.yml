@@ -80,6 +80,7 @@ targets:
         CFBundleDisplayName: PadTerm
         CFBundleName: PadTerm
         NSHumanReadableCopyright: "Copyright © 2026 杨源鑫 (Bruce.yang) · All rights reserved · Licensed under GPL-3.0"
+        ITSAppUsesNonExemptEncryption: NO
         LSApplicationCategoryType: public.app-category.developer-tools
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
