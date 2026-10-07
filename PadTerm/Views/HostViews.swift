@@ -278,5 +278,15 @@ struct HostDetailView: View {
         }
         .onAppear { if !metricsVM.isRunning { metricsVM.start() } }
         .onDisappear { metricsVM.stop() }
+        // 焦点互斥：离开终端 tab 就把键盘让出来，回来再把焦点还给终端
+        .onChange(of: tab) { _, newTab in
+            if newTab == .terminal {
+                terminalVM.setAutoFocusEnabled(true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { terminalVM.requestKeyboard() }
+            } else {
+                terminalVM.setAutoFocusEnabled(false)
+                terminalVM.dismissKeyboard()
+            }
+        }
     }
 }

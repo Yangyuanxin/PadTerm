@@ -268,6 +268,12 @@ final class TerminalViewModel: ObservableObject {
         onRequestKeyboard?()
     }
 
+    /// 是否允许「窗口重新回到前台时自动抢焦点」。切走终端 tab 时必须关掉，
+    /// 否则 AI 会话页面刚收掉的键盘会被终端立刻重新顶起来。
+    func setAutoFocusEnabled(_ enabled: Bool) {
+        renderView?.autoFocusOnWindowKey = enabled
+    }
+
     func dismissKeyboard() {
         #if targetEnvironment(macCatalyst)
         // Mac 上没有软键盘，「收键盘」= 失去第一响应者 = 完全无法输入，禁止

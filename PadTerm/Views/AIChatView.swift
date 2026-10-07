@@ -9,6 +9,7 @@ struct AIChatView: View {
 
     @State private var messages: [AIMessage] = []
     @State private var draft: String = ""
+    @FocusState private var composerFocused: Bool
     @State private var mode: AISessionMode = .device
     @State private var streaming = false
     @State private var lastError: String?
@@ -30,29 +31,34 @@ struct AIChatView: View {
                 modeBar
                 Divider()
             ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
-                        if messages.isEmpty { emptyHint }
-                        ForEach(messages) { message in
-                            messageRow(message)
-                                .id(message.id)
-                        }
-                        if streaming {
-                            HStack(spacing: 6) {
-                                ProgressView().controlSize(.small)
-                                Text("生成中…").font(.caption).foregroundStyle(.secondary)
-                            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    if messages.isEmpty { emptyHint }
+                    ForEach(messages) { message in
+                        messageRow(message)
+                            .id(message.id)
+                    }
+                    if streaming {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("生成中…").font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                    .padding(16)
                 }
-                .onChange(of: messages.count) { _, _ in
-                    if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
-                }
+                .padding(16)
+            }
+            // 手指一划就把键盘跟着推下去，这是最容易发现的一条隐藏入口
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: messages.count) { _, _ in
+                if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
+            }
             }
             Divider()
             composer
         }
+        // 点页面空白处（导航栏、分隔缝等非交互区域）也能收键盘
+        .contentShape(Rectangle())
+        .onTapGesture { hideKeyboard() }
         // 标题固定，避免切换模式时导航栏重排
         .navigationTitle("\(host?.name ?? "设备") · AI 会话")
         .navigationBarTitleDisplayMode(.inline)
@@ -77,6 +83,11 @@ struct AIChatView: View {
                     }
                 } label: { Label("更多", systemImage: "ellipsis.circle") }
             }
+            // 键盘右上角的「收起」：多行输入框的 Return 是换行，没有别的途径关掉键盘
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("收起") { hideKeyboard() }
+            }
         }
         .sheet(isPresented: $showHistory) {
             NavigationStack {
@@ -92,8 +103,8 @@ struct AIChatView: View {
                     }
             }
         }
-        .onAppear { FileLog.log("AIChatView 启动 build=2026-10-08d（按钮内置在页面顶部条）") }
-        .onDisappear(perform: saveCurrentSession)
+        .onAppear { FileLog.log("AIChatView 启动 build=2026-10-08e（键盘可收：输入框旁按钮 / 键盘栏 / 滚动 / 点空白）") }
+        .onDisappear { saveCurrentSession(); hideKeyboard() }
         .onChange(of: messages.count) { _, _ in saveCurrentSession() }
         .alert("开启新会话？", isPresented: $confirmNewSession) {
             Button("取消", role: .cancel) {}
@@ -317,9 +328,21 @@ struct AIChatView: View {
     private var composer: some View {
         VStack(spacing: 8) {
             HStack(alignment: .bottom, spacing: 10) {
-                TextField(mode == .device ? "向 AI 提问这台设备的问题…" : "随便问点什么…", text: $draft, axis: .vertical)
+                if composerFocused {
+                    Button(action: hideKeyboard) {
+                        Image(systemName: "keyboard.chevron.compact.down")
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("隐藏键盘")
+                    .transition(.opacity)
+                }
+                TextField(mode == .device ? "向 AI 提问这台设备的问题…" : "随便问点什么…",
+                          text: $draft, axis: .vertical)
                     .lineLimit(1...6)
                     .textFieldStyle(.roundedBorder)
+                    .focused($composerFocused)
                 Button(action: send) {
                     Label("发送", systemImage: "paperplane.fill")
                         .labelStyle(.iconOnly)
@@ -327,6 +350,7 @@ struct AIChatView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || streaming)
             }
+            .animation(.easeOut(duration: 0.15), value: composerFocused)
             Text("模型：\(store.aiSettings.model.isEmpty ? "未配置" : store.aiSettings.model)")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -337,11 +361,23 @@ struct AIChatView: View {
 
     // MARK: - 逻辑
 
+    /// 收起输入框键盘。
+    /// 只撤 SwiftUI 焦点在某些情况下（TabView 内的 TextField）不会真的让 UIResponder 离职，
+    /// 所以再补一发 resignFirstResponder，确保键盘一定下去。
+    private func hideKeyboard() {
+        composerFocused = false
+        DispatchQueue.main.async {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                            to: nil, from: nil, for: nil)
+        }
+    }
+
     private func send() {
         let question = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, !streaming else { return }
         draft = ""
         lastError = nil
+        hideKeyboard()
         messages.append(.user(question))
 
         let modeUsed = mode
