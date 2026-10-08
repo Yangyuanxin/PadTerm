@@ -248,7 +248,9 @@ final class TerminalRenderView: UIView, UIKeyInput, UIContextMenuInteractionDele
         } else {
             FileLog.log("presses (no key info) count=\(presses.count)")
         }
-        var handled = false
+        // 必须逐个 press 记账：以前用「整包 handled」判断，一批按键里只要有一个被消化，
+        // 剩下没处理的就再也到不了 super，UIKit 也不会补发 insertText —— 字符直接丢。
+        var unhandled: Set<UIPress> = []
         for press in presses {
             guard let key = press.key else { continue }
             // 特殊键：HID 键码直接映射
@@ -258,32 +260,32 @@ final class TerminalRenderView: UIView, UIKeyInput, UIContextMenuInteractionDele
                 } else {
                     send(bytes)
                 }
-                handled = true
                 continue
             }
             #if targetEnvironment(macCatalyst)
             // Catalyst 不会把硬件字符键桥接到 insertText（回车这类特殊键反而能到 pressesBegan），
             // 所以字符输入必须在这里自己转，否则字母/数字/符号全部打不进去
             let flags = key.modifierFlags
-            if flags.contains(.command) || flags.contains(.alphaShift) { continue } // ⌘ 组合交给系统
+            if flags.contains(.command) { continue }   // ⌘ 组合交给系统（拷贝/粘贴）
             if flags.contains(.control), let c = key.charactersIgnoringModifiers.lowercased().utf8.first,
                (97...122).contains(c) {
                 send([c - 96])
-                handled = true
                 continue
             }
             if flags.contains(.alternate) {
                 send([0x1B] + Array(key.charactersIgnoringModifiers.utf8))
-                handled = true
                 continue
             }
             if !key.characters.isEmpty {
+                // 走 characters（而不是 ignoringModifiers）才能带上 Caps Lock / Shift 的大小写
                 insertText(key.characters)
-                handled = true
+                continue
             }
             #endif
+            // 这个 press 没人认领：交回 super，UIKit 才会补发 insertText，字符不会丢
+            unhandled.insert(press)
         }
-        if !handled { super.pressesBegan(presses, with: event) }
+        if !unhandled.isEmpty { super.pressesBegan(unhandled, with: event) }
     }
 
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
@@ -382,17 +384,20 @@ final class TerminalRenderView: UIView, UIKeyInput, UIContextMenuInteractionDele
 
     func hideKeyboard() { _ = resignFirstResponder() }
 
+    // 焦点上报必须用 isFirstResponder 的真实值：
+    // become/resign 的返回值在「已经是/已经不是第一响应者」时都会返回 false/true 之外的语义，
+    // 直接拿返回值当焦点状态会把外层 toggle 判反，导致点终端永远走「收键盘」分支，再也拿不回输入。
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
-        FileLog.log("becomeFirstResponder -> \(became)")
-        onFocusChange?(became)
+        FileLog.log("becomeFirstResponder -> \(became) isFirstResponder=\(isFirstResponder)")
+        onFocusChange?(isFirstResponder)
         return became
     }
 
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
-        FileLog.log("resignFirstResponder -> \(resigned)")
-        onFocusChange?(!resigned)
+        FileLog.log("resignFirstResponder -> \(resigned) isFirstResponder=\(isFirstResponder)")
+        onFocusChange?(isFirstResponder)
         return resigned
     }
 
@@ -800,23 +805,35 @@ struct TerminalCanvas: UIViewRepresentable {
                                            fontSize: CGFloat(model.fontSize))
             render.accessoryEnabled = usesKeyboardAccessory
             render.scrollView = scrollView
-            render.onResize = { cols, rows in model.resize(cols: cols, rows: rows) }
-            render.onFontSizeChange = { size in model.fontSize = Double(size) }
-            render.onInput = { bytes in model.sendBytes(bytes) }
-            render.onFocusChange = { focused in model.isKeyboardVisible = focused }
-            render.onKeyboardVisibility = { shown in
-                model.systemKeyboardShown = shown
+            // 所有闭包都必须弱捕获：model 与 render 互相强持有会让 view 销毁后
+            // 「唤起键盘」这类闭包仍指向已释放对象，表现为按键盘毫无反应
+            render.onResize = { [weak model] cols, rows in model?.resize(cols: cols, rows: rows) }
+            render.onFontSizeChange = { [weak model] size in model?.fontSize = Double(size) }
+            render.onInput = { [weak model] bytes in model?.sendBytes(bytes) }
+            render.onFocusChange = { [weak model] focused in model?.isKeyboardVisible = focused }
+            render.onKeyboardVisibility = { [weak model] shown in
+                model?.systemKeyboardShown = shown
                 FileLog.log("系统键盘可见性 -> \(shown)")
             }
-            render.onDebugEvent = { text in model.logUIEvent(text) }
-            render.onCopy = { text in model.hint = "已复制选中内容（\(text.count) 字符）" }
+            render.onDebugEvent = { [weak model] text in model?.logUIEvent(text) }
+            render.onCopy = { [weak model] text in
+                model?.hint = "已复制选中内容（\(text.count) 字符）"
+            }
             scrollView.addSubview(render)
             model.renderView = render
             // 焦点请求的落地实现（此前没人赋值，导致所有「请求聚焦」都是空调用）
-            model.onRequestKeyboard = { render.showKeyboard() }
-            model.onDismissKeyboard = { render.hideKeyboard() }
+            model.onRequestKeyboard = { [weak render] in render?.showKeyboard() }
+            model.onDismissKeyboard = { [weak render] in render?.hideKeyboard() }
             FileLog.log("TerminalCanvas.makeUIView 已接线 onRequestKeyboard")
             return scrollView
+        }
+    }
+
+    static func dismantleUIView(_ uiView: UIScrollView, coordinator: ()) {
+        MainActor.assumeIsolated {
+            for subview in uiView.subviews where subview is TerminalRenderView {
+                subview.removeFromSuperview()
+            }
         }
     }
 

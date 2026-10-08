@@ -380,6 +380,20 @@ final class ShellIOHandler: ChannelInboundHandler {
         }
     }
 
+    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        // pty-req / shell 请求的应答：被拒（BusyBox / Dropbear / PermitTTY no）时
+        // shell 照常在跑但没有 TTY —— 表现为「命令其实执行了，屏幕上一个字都不回显」，
+        // 必须说出来，否则用户只会以为键盘坏了
+        if event is ChannelFailureEvent {
+            let closing = userClosed
+            FileLog.log("SSH channel request 被服务端拒绝（ChannelFailureEvent）")
+            DispatchQueue.main.async {
+                guard !closing else { return }
+                self.onError?("服务端拒绝了伪终端(PTY/shell)请求：不会有回显，Tab 补全与 ↑↓ 历史也不可用")
+            }
+        }
+    }
+
     func channelInactive(context: ChannelHandlerContext) {
         let closing = userClosed
         DispatchQueue.main.async { if !closing { self.onClose?() } }

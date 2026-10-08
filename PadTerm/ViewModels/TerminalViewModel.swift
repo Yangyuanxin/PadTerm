@@ -212,8 +212,18 @@ final class TerminalViewModel: ObservableObject {
 
     // MARK: - 发送
 
+    /// 丢字节时必须在界面上说出来：会话断了之后每一次按键都会走这里，
+    /// 静默 return 会让用户完全分不清是「键盘坏了」还是「连接断了」。
     func sendBytes(_ bytes: [UInt8]) {
-        guard let session, !bytes.isEmpty else { return }
+        guard !bytes.isEmpty else { return }
+        guard let session else {
+            let note = status == .idle
+                ? "未连接：按键没有发出去，先点右上角的「连接」"
+                : "会话已断开：按键没有发出去，请重新连接"
+            FileLog.log("TX 丢弃 \(bytes.count)B —— 无可用会话 status=\(status)")
+            hint = note
+            return
+        }
         logDiag(direction: "TX", bytes: bytes)
         let hex = bytes.prefix(32).map { String(format: "%02X", $0) }.joined(separator: " ")
         FileLog.log("TX \(bytes.count)B [\(hex)]")
@@ -282,12 +292,16 @@ final class TerminalViewModel: ObservableObject {
         #endif
     }
 
+    /// 终端视图现在是否真的持有键盘焦点。以 UIResponder 的实际状态为准，
+    /// 不用 isKeyboardVisible 这种可能被回调写错的值，避免 toggle 判反。
+    var isFocused: Bool { renderView?.isFirstResponder ?? false }
+
     func toggleKeyboard() {
         #if targetEnvironment(macCatalyst)
         // Mac 上点击终端只做一件事：确保终端持有键盘焦点
         onRequestKeyboard?()
         #else
-        isKeyboardVisible ? onDismissKeyboard?() : onRequestKeyboard?()
+        isFocused ? onDismissKeyboard?() : onRequestKeyboard?()
         #endif
     }
 

@@ -282,7 +282,13 @@ struct HostDetailView: View {
         .onChange(of: tab) { _, newTab in
             if newTab == .terminal {
                 terminalVM.setAutoFocusEnabled(true)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { terminalVM.requestKeyboard() }
+                // 稍晚一点再抢焦点：AI 页消失时的 resign 广播、SwiftUI 层级更新都挤在这几百毫秒里，
+                // 抢早了会被顺手收掉；抢完再校验一次，没拿到就补一次
+                for delay in [0.45, 1.0] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        terminalVM.requestKeyboard()
+                    }
+                }
             } else {
                 terminalVM.setAutoFocusEnabled(false)
                 terminalVM.dismissKeyboard()

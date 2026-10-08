@@ -365,6 +365,9 @@ struct AIChatView: View {
     /// 只撤 SwiftUI 焦点在某些情况下（TabView 内的 TextField）不会真的让 UIResponder 离职，
     /// 所以再补一发 resignFirstResponder，确保键盘一定下去。
     private func hideKeyboard() {
+        // 焦点不在输入框时必须直接返回：resignFirstResponder 的 sendAction 会沿响应链广播，
+        // 把别人（终端页的第一响应者）的键盘也一起收掉。
+        guard composerFocused else { return }
         composerFocused = false
         DispatchQueue.main.async {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
